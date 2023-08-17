@@ -431,6 +431,10 @@ github.com/fvbommel/sortorder
 # github.com/fzipp/gocyclo v0.6.0
 ## explicit; go 1.18
 github.com/fzipp/gocyclo
+# github.com/gardener/controller-manager-library v0.2.0
+## explicit; go 1.13
+github.com/gardener/controller-manager-library/pkg/logger
+github.com/gardener/controller-manager-library/pkg/utils
 # github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 ## explicit
 github.com/ghodss/yaml
@@ -677,7 +681,10 @@ github.com/gophercloud/gophercloud/openstack
 github.com/gophercloud/gophercloud/openstack/blockstorage/v3/snapshots
 github.com/gophercloud/gophercloud/openstack/blockstorage/v3/volumes
 github.com/gophercloud/gophercloud/openstack/common/extensions
+github.com/gophercloud/gophercloud/openstack/compute/v2/extensions
+github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/extendedstatus
 github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/servergroups
+github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/startstop
 github.com/gophercloud/gophercloud/openstack/compute/v2/servers
 github.com/gophercloud/gophercloud/openstack/identity/v2/tenants
 github.com/gophercloud/gophercloud/openstack/identity/v2/tokens
