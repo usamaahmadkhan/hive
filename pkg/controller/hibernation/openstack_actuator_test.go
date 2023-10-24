@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"net/http"
 
 	"github.com/golang/mock/gomock"
 	"github.com/gophercloud/gophercloud"
@@ -15,12 +16,17 @@ import (
 	"github.com/openshift/hive/pkg/client/clientset/versioned/scheme"
 	"github.com/openshift/hive/pkg/openstackclient"
 	mockopenstackclient "github.com/openshift/hive/pkg/openstackclient/mock"
+	"github.com/gophercloud/gophercloud/testhelper"
 	testcd "github.com/openshift/hive/pkg/test/clusterdeployment"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+type SinglePageResult struct {
+	pagination.SinglePageBase
+}
 
 type ServersList struct {
 	Servers []ServerWithExtendedStatus `json:"servers"`
@@ -166,7 +172,6 @@ func TestOpenstackMachinesStoppedAndMachinesRunning(t *testing.T) {
 			},
 		},
 	}
-	fmt.Println(tests)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -244,15 +249,40 @@ func setupOpenstackClientInstances(openstackClient *mockopenstackclient.MockClie
 	}
 	srversBody := string(srversBodybytes)
 
-	fmt.Println(srversBody)
+	testhelper.SetupHTTP()
+	client := &gophercloud.ServiceClient{
+			ProviderClient: &gophercloud.ProviderClient{TokenID: "abc123"},
+			Endpoint:       testhelper.Endpoint(),
+		}
+	
 
-	pageresult := pagination.PageResult{
-		Result: gophercloud.Result{Body: srversBody},
+	testhelper.Mux.HandleFunc("/only", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Add("Content-Type", "application/json")
+		fmt.Fprintf(w, srversBody)
+	})
+
+	createPage := func(r pagination.PageResult) pagination.Page {
+		return servers.ServerPage{LinkedPageBase: pagination.LinkedPageBase{PageResult: r}}
 	}
 
-	pager := pagination.NewPager(nil, "", func(r pagination.PageResult) pagination.Page {
-		return servers.ServerPage{LinkedPageBase: pagination.LinkedPageBase{PageResult: pageresult}}
-	})
+	pager := pagination.NewPager(client, testhelper.Server.URL+"/only", createPage)
+
+	// //fmt.Println(srversBody)
+
+	// pageresult := pagination.PageResult{
+	// 	Result: gophercloud.Result{Body: srversBody},
+	// }
+
+	// mockClient := &gophercloud.ServiceClient{
+	// 	ProviderClient: &gophercloud.ProviderClient{TokenID: "abc123"},
+	// 	Endpoint:       "http://openstack.com/",
+	// }
+
+	// pager := pagination.NewPager(mockClient, mockClient.Endpoint+"/server/details", func(r pagination.PageResult) pagination.Page {
+	// 	return servers.ServerPage{LinkedPageBase: pagination.LinkedPageBase{PageResult: pageresult}}
+	// })
+
+	fmt.Println(pager)
 
 	openstackClient.EXPECT().ListServers(gomock.Any()).Times(1).Return(pager)
 }
