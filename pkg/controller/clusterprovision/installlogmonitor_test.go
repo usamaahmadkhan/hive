@@ -11,13 +11,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/pointer"
 
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	"github.com/openshift/hive/apis"
 	"github.com/openshift/hive/pkg/constants"
+	testfake "github.com/openshift/hive/pkg/test/fake"
+	"github.com/openshift/hive/pkg/util/scheme"
 )
 
 func init() {
@@ -66,10 +64,11 @@ const (
 	noWorkerNodesReady                      = "ReadyIngressNodesAvailable: Authentication requires functional ingress which requires at least one schedulable and ready node. Got 0 worker nodes, 3 master nodes, 0 custom target nodes (none are schedulable or ready for ingress pods)."
 	s3AccessControlListNotSupported         = "time=\"2023-04-11T08:22:52Z\" level=error msg=\"Error: error creating S3 bucket ACL for rosa-6lr7x-flcmj-bootstrap: AccessControlListNotSupported: The bucket does not allow ACLs\""
 	awsAccountBlocked                       = "Error: creating EC2 Instance: Blocked: This account is currently blocked and not recognized as a valid account. Please contact aws-verification@amazon.com if you have questions."
+	ingressOperatorDegraded                 = "Cluster operator authentication Degraded is True with OAuthServerRouteEndpointAccessibleController_SyncError\nCluster operator ingress Degraded is True with IngressDegraded"
+	awsSubnetInsufficientIPSpace            = "IngressControllerUnavailable: One or more status conditions indicate unavailable: LoadBalancerReady=False (SyncLoadBalancerFailed: The service-controller component is reporting SyncLoadBalancerFailed events like: Error syncing load balancer: failed to ensure load balancer: InvalidSubnet: Not enough IP space available in subnet-08dcf1a15b3330b1d. ELB requires at least 8 free IP addresses in each subnet.\\n\\tstatus code: 400, request id: ac141e76-b455-4082-8ff3-556107921222\\nThe kube-controller-manager logs may contain more details.)\""
 )
 
 func TestParseInstallLog(t *testing.T) {
-	apis.AddToScheme(scheme.Scheme)
 	tests := []struct {
 		name            string
 		log             *string
@@ -77,6 +76,16 @@ func TestParseInstallLog(t *testing.T) {
 		expectedReason  string
 		expectedMessage *string
 	}{
+		{
+			name:           "AWSSubnetInsufficientIPSpace",
+			log:            pointer.String(awsSubnetInsufficientIPSpace),
+			expectedReason: "AWSSubnetInsufficientIPSpace",
+		},
+		{
+			name:           "IngressOperatorDegraded",
+			log:            pointer.String(ingressOperatorDegraded),
+			expectedReason: "IngressOperatorDegraded",
+		},
 		{
 			name:           "S3AccessControlListNotSupported",
 			log:            pointer.String(s3AccessControlListNotSupported),
@@ -446,10 +455,10 @@ func TestParseInstallLog(t *testing.T) {
 			if existing == nil {
 				existing = []runtime.Object{buildRegexConfigMap()}
 			}
-			fakeClient := fake.NewClientBuilder().WithRuntimeObjects(existing...).Build()
+			fakeClient := testfake.NewFakeClientBuilder().WithRuntimeObjects(existing...).Build()
 			r := &ReconcileClusterProvision{
 				Client: fakeClient,
-				scheme: scheme.Scheme,
+				scheme: scheme.GetScheme(),
 			}
 			reason, message := r.parseInstallLog(test.log, log.WithFields(log.Fields{}))
 			assert.Equal(t, test.expectedReason, reason, "unexpected reason")
@@ -464,7 +473,8 @@ func TestParseInstallLog(t *testing.T) {
 
 // buildRegexConfigMap reads the install log regexes configmap from within config/configmaps/install-log-regexes-configmap.yaml
 func buildRegexConfigMap() runtime.Object {
-	decode := serializer.NewCodecFactory(scheme.Scheme).UniversalDeserializer().Decode
+	scheme := scheme.GetScheme()
+	decode := serializer.NewCodecFactory(scheme).UniversalDeserializer().Decode
 	stream, err := os.ReadFile("../../../config/configmaps/install-log-regexes-configmap.yaml")
 	if err != nil {
 		log.Fatal(err)

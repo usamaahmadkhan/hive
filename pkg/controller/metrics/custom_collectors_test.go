@@ -14,18 +14,22 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	hiveintv1alpha1 "github.com/openshift/hive/apis/hiveinternal/v1alpha1"
 	testcd "github.com/openshift/hive/pkg/test/clusterdeployment"
 	testcs "github.com/openshift/hive/pkg/test/clustersync"
+	testfake "github.com/openshift/hive/pkg/test/fake"
 	testgeneric "github.com/openshift/hive/pkg/test/generic"
+	"github.com/openshift/hive/pkg/util/scheme"
+)
+
+const (
+	testFinalizer = "test-finalizer"
 )
 
 func TestProvisioningUnderwayCollector(t *testing.T) {
-	scheme := runtime.NewScheme()
-	hivev1.AddToScheme(scheme)
+	scheme := scheme.GetScheme()
 
 	cdBuilder := func(name string) testcd.Builder {
 		return testcd.FullBuilder(name, name, scheme).
@@ -50,7 +54,7 @@ func TestProvisioningUnderwayCollector(t *testing.T) {
 		name: "mix of installed and deleting",
 		existing: []runtime.Object{
 			cdBuilder("cd-1").Build(testcd.Installed()),
-			cdBuilder("cd-2").GenericOptions(testgeneric.Deleted()).Build(testcd.Installed()),
+			cdBuilder("cd-2").GenericOptions(testgeneric.Deleted(), testgeneric.WithFinalizer(testFinalizer)).Build(testcd.Installed()),
 			cdBuilder("cd-3").Build(testcd.Installed()),
 		},
 	}, {
@@ -251,7 +255,7 @@ func TestProvisioningUnderwayCollector(t *testing.T) {
 	}}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(test.existing...).Build()
+			c := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 			collect := newProvisioningUnderwaySecondsCollector(c, test.min)
 			// TODO: Determine whether collect.Describe() is necessary in test cases
 			descCh := make(chan *prometheus.Desc)
@@ -271,7 +275,7 @@ func TestProvisioningUnderwayCollector(t *testing.T) {
 			for sample := range ch {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got = append(got, metricPretty(d))
+				got = append(got, metricPretty(&d))
 			}
 			assert.Equal(t, test.expected, got)
 		})
@@ -279,8 +283,7 @@ func TestProvisioningUnderwayCollector(t *testing.T) {
 }
 
 func TestProvisioningUnderwayInstallRestartsCollector(t *testing.T) {
-	scheme := runtime.NewScheme()
-	hivev1.AddToScheme(scheme)
+	scheme := scheme.GetScheme()
 
 	cdBuilder := func(name string) testcd.Builder {
 		return testcd.FullBuilder(name, name, scheme)
@@ -304,7 +307,7 @@ func TestProvisioningUnderwayInstallRestartsCollector(t *testing.T) {
 		name: "mix of installed and deleting",
 		existing: []runtime.Object{
 			cdBuilder("cd-1").Build(testcd.Installed()),
-			cdBuilder("cd-2").GenericOptions(testgeneric.Deleted()).Build(testcd.Installed()),
+			cdBuilder("cd-2").GenericOptions(testgeneric.Deleted(), testgeneric.WithFinalizer(testFinalizer)).Build(testcd.Installed()),
 			cdBuilder("cd-3").Build(testcd.Installed()),
 		},
 	}, {
@@ -544,7 +547,7 @@ func TestProvisioningUnderwayInstallRestartsCollector(t *testing.T) {
 	}}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(test.existing...).Build()
+			c := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 			collect := newProvisioningUnderwayInstallRestartsCollector(c, test.min)
 			// TODO: Determine whether collect.Describe() is necessary in test cases
 			descCh := make(chan *prometheus.Desc)
@@ -564,7 +567,7 @@ func TestProvisioningUnderwayInstallRestartsCollector(t *testing.T) {
 			for sample := range ch {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got = append(got, metricPrettyWithValue(d))
+				got = append(got, metricPrettyWithValue(&d))
 			}
 			assert.Equal(t, test.expected, got)
 		})
@@ -572,12 +575,11 @@ func TestProvisioningUnderwayInstallRestartsCollector(t *testing.T) {
 }
 
 func TestDeprovisioningUnderwayCollector(t *testing.T) {
-	scheme := runtime.NewScheme()
-	hivev1.AddToScheme(scheme)
+	scheme := scheme.GetScheme()
 
 	cdBuilder := func(name string) testcd.Builder {
 		return testcd.FullBuilder(name, name, scheme).
-			GenericOptions(testgeneric.WithFinalizer("test-finalizer"))
+			GenericOptions(testgeneric.WithFinalizer(testFinalizer))
 	}
 
 	cases := []struct {
@@ -624,7 +626,7 @@ func TestDeprovisioningUnderwayCollector(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(test.existing...).Build()
+			c := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 			collect := newDeprovisioningUnderwaySecondsCollector(c)
 			// TODO: Determine whether collect.Describe() is necessary in test cases
 			descCh := make(chan *prometheus.Desc)
@@ -645,7 +647,7 @@ func TestDeprovisioningUnderwayCollector(t *testing.T) {
 			for sample := range ch1 {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got1 = append(got1, metricPretty(d))
+				got1 = append(got1, metricPretty(&d))
 			}
 			assert.Equal(t, test.expected1, got1)
 
@@ -665,7 +667,7 @@ func TestDeprovisioningUnderwayCollector(t *testing.T) {
 			for sample := range ch2 {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got2 = append(got2, metricPretty(d))
+				got2 = append(got2, metricPretty(&d))
 			}
 			assert.Equal(t, test.expected2, got2)
 		})
@@ -673,14 +675,18 @@ func TestDeprovisioningUnderwayCollector(t *testing.T) {
 }
 
 func TestClusterSyncCollector(t *testing.T) {
-	scheme := runtime.NewScheme()
-	hiveintv1alpha1.AddToScheme(scheme)
+	scheme := scheme.GetScheme()
+
+	cdBuilder := func(namespace string, name string) testcd.Builder {
+		return testcd.FullBuilder(namespace, name, scheme)
+	}
 
 	cases := []struct {
 		name string
 
-		existing []runtime.Object
-		min      time.Duration
+		existing       []runtime.Object
+		min            time.Duration
+		optionalLabels map[string]string
 
 		expected1 []string
 		expected2 []string
@@ -690,32 +696,130 @@ func TestClusterSyncCollector(t *testing.T) {
 			existing: []runtime.Object{
 				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
 			},
-			min:       1 * time.Hour,
-			expected1: []string(nil),
-			expected2: []string(nil),
+			min:            1 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string(nil),
+			expected2:      []string(nil),
 		},
 		{
 			name: "clustersync passed threshold",
 			existing: []runtime.Object{
 				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+				cdBuilder("test-namespace", "test-name").Build(testcd.WithCondition(hivev1.ClusterDeploymentCondition{
+					Type:   hivev1.UnreachableCondition,
+					Status: corev1.ConditionUnknown,
+				})),
 			},
-			min:       0 * time.Hour,
-			expected1: []string{"namespaced_name = test-namespace/test-name"},
+			min:            0 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string{"namespaced_name = test-namespace/test-name unreachable = Unknown"},
+			expected2:      []string(nil),
+		},
+		{
+			name:           "no clustersync",
+			existing:       nil,
+			min:            1 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string(nil),
+			expected2:      []string(nil),
+		},
+		{
+			name: "report expected fixed labels",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+				cdBuilder("test-namespace", "test-name").Build(testcd.WithCondition(hivev1.ClusterDeploymentCondition{
+					Type:   hivev1.UnreachableCondition,
+					Status: corev1.ConditionTrue,
+				})),
+			},
+			min:            0 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string{"namespaced_name = test-namespace/test-name unreachable = True"},
+			expected2:      []string(nil),
+		},
+		{
+			name: "report  fixed labels; no unreachable condition",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+				cdBuilder("test-namespace", "test-name").Build(),
+			},
+			min:            0 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string{"namespaced_name = test-namespace/test-name unreachable = unspecified"},
+			expected2:      []string(nil),
+		},
+		{
+			name: "report when ClusterDeployment not found",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+			},
+			min:            0 * time.Hour,
+			optionalLabels: map[string]string{},
+			expected1:      []string{"namespaced_name = test-namespace/test-name unreachable = unspecified"},
+			expected2:      []string(nil),
+		},
+		{
+			name: "report optional metrics",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+				cdBuilder("test-namespace", "test-name").Build(
+					testcd.WithLabel("cd-label", "test-value"),
+					testcd.WithCondition(hivev1.ClusterDeploymentCondition{
+						Type:   hivev1.UnreachableCondition,
+						Status: corev1.ConditionUnknown,
+					})),
+			},
+			min: 0 * time.Hour,
+			optionalLabels: map[string]string{
+				"test_label": "cd-label",
+			},
+			expected1: []string{"namespaced_name = test-namespace/test-name test_label = test-value unreachable = Unknown"},
 			expected2: []string(nil),
 		},
 		{
-			name:      "no clustersync",
-			existing:  nil,
-			min:       1 * time.Hour,
-			expected1: []string(nil),
+			name: "report multiple optional metrics",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+				cdBuilder("test-namespace", "test-name").Build(
+					testcd.WithLabel("cd-label-1", "value-1"),
+					testcd.WithLabel("cd-label-2", "value-2"),
+					testcd.WithLabel("cd-label-3", "value-3"),
+					testcd.WithCondition(hivev1.ClusterDeploymentCondition{
+						Type:   hivev1.UnreachableCondition,
+						Status: corev1.ConditionUnknown,
+					})),
+			},
+			min: 0 * time.Hour,
+			optionalLabels: map[string]string{
+				"label1": "cd-label-1",
+				"label2": "cd-label-2",
+				"label3": "cd-label-3",
+			},
+			// ensure correct values for all labels are reported
+			expected1: []string{"label1 = value-1 label2 = value-2 label3 = value-3 namespaced_name = test-namespace/test-name unreachable = Unknown"},
+			expected2: []string(nil),
+		},
+		{
+			name: "report multiple optional metrics; no clusterdeployment found",
+			existing: []runtime.Object{
+				testcs.FullBuilder("test-namespace", "test-name", scheme).Options(FailingSince(time.Now())).Build(),
+			},
+			min: 0 * time.Hour,
+			optionalLabels: map[string]string{
+				"label1": "cd-label-1",
+				"label2": "cd-label-2",
+				"label3": "cd-label-3",
+			},
+			// ensure correct values for all labels are reported
+			expected1: []string{"label1 = unspecified label2 = unspecified label3 = unspecified namespaced_name = test-namespace/test-name unreachable = unspecified"},
 			expected2: []string(nil),
 		},
 	}
 	for _, test := range cases {
 		t.Run("test", func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(test.existing...).Build()
+			c := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 
-			collect := newClusterSyncFailingCollector(c, test.min)
+			collect := newClusterSyncFailingCollector(c, test.min, test.optionalLabels)
 			// TODO: Determine whether collect.Describe() is necessary in test cases
 			descCh := make(chan *prometheus.Desc)
 			go func() {
@@ -735,7 +839,7 @@ func TestClusterSyncCollector(t *testing.T) {
 			for sample := range ch1 {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got1 = append(got1, metricPretty(d))
+				got1 = append(got1, metricPretty(&d))
 			}
 			assert.Equal(t, test.expected1, got1)
 
@@ -755,7 +859,7 @@ func TestClusterSyncCollector(t *testing.T) {
 			for sample := range ch2 {
 				var d dto.Metric
 				require.NoError(t, sample.Write(&d))
-				got2 = append(got2, metricPretty(d))
+				got2 = append(got2, metricPretty(&d))
 			}
 			assert.Equal(t, test.expected2, got2)
 
@@ -773,7 +877,7 @@ func FailingSince(t time.Time) testcs.Option {
 	})
 }
 
-func metricPretty(d dto.Metric) string {
+func metricPretty(d *dto.Metric) string {
 	labels := make([]string, len(d.Label))
 	for _, label := range d.Label {
 		labels = append(labels, fmt.Sprintf("%s = %s", *label.Name, *label.Value))
@@ -781,7 +885,7 @@ func metricPretty(d dto.Metric) string {
 	return strings.TrimSpace(strings.Join(labels, " "))
 }
 
-func metricPrettyWithValue(d dto.Metric) string {
+func metricPrettyWithValue(d *dto.Metric) string {
 	labels := metricPretty(d)
 	value := 0
 	if d.Gauge != nil {

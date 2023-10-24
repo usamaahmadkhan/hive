@@ -165,13 +165,16 @@ func (a *GCPActuator) GenerateMachineSets(cd *hivev1.ClusterDeployment, pool *hi
 		poolName = leaseChar
 	}
 
+	poolGCP := pool.Spec.Platform.GCP
+
 	ic := &installertypes.InstallConfig{
 		Platform: installertypes.Platform{
 			GCP: &installertypesgcp.Platform{
-				Region:        cd.Spec.Platform.GCP.Region,
-				ProjectID:     a.projectID,
-				ComputeSubnet: a.subnet,
-				Network:       a.network,
+				Region:           cd.Spec.Platform.GCP.Region,
+				ProjectID:        a.projectID,
+				ComputeSubnet:    a.subnet,
+				Network:          a.network,
+				NetworkProjectID: poolGCP.NetworkProjectID,
 			},
 		},
 	}
@@ -179,20 +182,22 @@ func (a *GCPActuator) GenerateMachineSets(cd *hivev1.ClusterDeployment, pool *hi
 	computePool := baseMachinePool(pool)
 	computePool.Name = poolName
 	computePool.Platform.GCP = &installertypesgcp.MachinePool{
-		Zones:        pool.Spec.Platform.GCP.Zones,
-		InstanceType: pool.Spec.Platform.GCP.InstanceType,
+		Zones:        poolGCP.Zones,
+		InstanceType: poolGCP.InstanceType,
 		// May be overridden below:
 		OSDisk: installertypesgcp.OSDisk{
 			DiskType:   defaultGCPDiskType,
 			DiskSizeGB: defaultGCPDiskSizeGB,
 		},
 	}
+	if secureBoot := poolGCP.SecureBoot; secureBoot != "" {
+		computePool.Platform.GCP.SecureBoot = secureBoot
+	}
 
-	poolGCP := pool.Spec.Platform.GCP
-	if pool.Spec.Platform.GCP.OSDisk.DiskType != "" {
+	if poolGCP.OSDisk.DiskType != "" {
 		computePool.Platform.GCP.OSDisk.DiskType = poolGCP.OSDisk.DiskType
 	}
-	if pool.Spec.Platform.GCP.OSDisk.DiskSizeGB != 0 {
+	if poolGCP.OSDisk.DiskSizeGB != 0 {
 		computePool.Platform.GCP.OSDisk.DiskSizeGB = poolGCP.OSDisk.DiskSizeGB
 	}
 

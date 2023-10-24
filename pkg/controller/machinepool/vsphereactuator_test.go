@@ -10,13 +10,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
 
 	machineapi "github.com/openshift/api/machine/v1beta1"
 	vsphereutil "github.com/openshift/machine-api-operator/pkg/controller/vsphere"
 
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	hivev1vsphere "github.com/openshift/hive/apis/hive/v1/vsphere"
+	"github.com/openshift/hive/pkg/util/scheme"
 )
 
 func TestVSphereActuator(t *testing.T) {
@@ -33,7 +33,7 @@ func TestVSphereActuator(t *testing.T) {
 			clusterDeployment: testVSphereClusterDeployment(),
 			pool:              testVSpherePool(),
 			expectedMachineSetReplicas: map[string]int64{
-				fmt.Sprintf("%s-worker", testInfraID): 3,
+				fmt.Sprintf("%s-worker-0", testInfraID): 3,
 			},
 			masterMachine: testVSphereMachine("master0", "master"),
 		},
@@ -41,9 +41,9 @@ func TestVSphereActuator(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			machineapi.AddToScheme(scheme.Scheme)
+			scheme := scheme.GetScheme()
 
-			actuator, err := NewVSphereActuator(test.masterMachine, scheme.Scheme, log.WithField("actuator", "vsphereactuator_test"))
+			actuator, err := NewVSphereActuator(test.masterMachine, scheme, log.WithField("actuator", "vsphereactuator_test"))
 			assert.NoError(t, err, "unexpected error creating VSphereActuator")
 
 			generatedMachineSets, _, err := actuator.GenerateMachineSets(test.clusterDeployment, test.pool, actuator.logger)
@@ -73,6 +73,8 @@ func validateVSphereMachineSets(t *testing.T, mSets []*machineapi.MachineSet, ex
 			assert.Equal(t, int32(4), vsphereProvider.NumCPUs, "unexpected NumCPUs")
 			assert.Equal(t, int32(4), vsphereProvider.NumCoresPerSocket, "unexpected NumCoresPerSocket")
 			assert.Equal(t, int32(512), vsphereProvider.DiskGiB, "unexpected DiskGiB")
+			assert.Equal(t, "/vsphere-datacenter/vm/vsphere-folder", vsphereProvider.Workspace.Folder, "unexpected Folder")
+			assert.Equal(t, "/vsphere-datacenter/host/vsphere-cluster/Resources/vsphere-pool", vsphereProvider.Workspace.ResourcePool, "unexpected ResourcePool")
 		}
 	}
 }
@@ -81,6 +83,7 @@ func testVSpherePool() *hivev1.MachinePool {
 	p := testMachinePool()
 	p.Spec.Platform = hivev1.MachinePoolPlatform{
 		VSphere: &hivev1vsphere.MachinePool{
+			ResourcePool:      "/vsphere-datacenter/host/vsphere-cluster/Resources/vsphere-pool",
 			MemoryMiB:         32 * 1024,
 			NumCPUs:           4,
 			NumCoresPerSocket: 4,
@@ -99,6 +102,7 @@ func testVSphereClusterDeployment() *hivev1.ClusterDeployment {
 			CredentialsSecretRef: corev1.LocalObjectReference{
 				Name: "vsphere-credentials",
 			},
+			Folder: "/vsphere-datacenter/vm/vsphere-folder",
 		},
 	}
 	return cd

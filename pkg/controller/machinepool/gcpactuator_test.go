@@ -16,18 +16,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	jsonserializer "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	machineapi "github.com/openshift/api/machine/v1beta1"
 
-	"github.com/openshift/hive/apis"
 	hivev1 "github.com/openshift/hive/apis/hive/v1"
 	hivev1gcp "github.com/openshift/hive/apis/hive/v1/gcp"
 	"github.com/openshift/hive/pkg/constants"
 	controllerutils "github.com/openshift/hive/pkg/controller/utils"
 	gcpclient "github.com/openshift/hive/pkg/gcpclient"
 	mockgcp "github.com/openshift/hive/pkg/gcpclient/mock"
+	testfake "github.com/openshift/hive/pkg/test/fake"
+	"github.com/openshift/hive/pkg/util/scheme"
 )
 
 const (
@@ -170,10 +169,51 @@ func TestGCPActuator(t *testing.T) {
 				generateGCPMachineSetName("worker", "zone1"): 3,
 			},
 		},
+		{
+			name: "generate machinesets with NetworkProjectID",
+			pool: func() *hivev1.MachinePool {
+				pool := testGCPPool(testPoolName)
+				pool.Spec.Platform.GCP.NetworkProjectID = "some-project-id"
+				return pool
+			}(),
+			mockGCPClient: func(client *mockgcp.MockClient) {
+				mockListComputeZones(client, []string{"zone1"}, testRegion)
+			},
+			expectedMachineSetReplicas: map[string]int64{
+				generateGCPMachineSetName("worker", "zone1"): 3,
+			},
+		},
+		{
+			name: "generate machinesets with SecureBoot enabled",
+			pool: func() *hivev1.MachinePool {
+				pool := testGCPPool(testPoolName)
+				pool.Spec.Platform.GCP.SecureBoot = "Enabled"
+				return pool
+			}(),
+			mockGCPClient: func(client *mockgcp.MockClient) {
+				mockListComputeZones(client, []string{"zone1"}, testRegion)
+			},
+			expectedMachineSetReplicas: map[string]int64{
+				generateGCPMachineSetName("worker", "zone1"): 3,
+			},
+		},
+		{
+			name: "generate machinesets with SecureBoot disabled",
+			pool: func() *hivev1.MachinePool {
+				pool := testGCPPool(testPoolName)
+				pool.Spec.Platform.GCP.SecureBoot = "Disabled"
+				return pool
+			}(),
+			mockGCPClient: func(client *mockgcp.MockClient) {
+				mockListComputeZones(client, []string{"zone1"}, testRegion)
+			},
+			expectedMachineSetReplicas: map[string]int64{
+				generateGCPMachineSetName("worker", "zone1"): 3,
+			},
+		},
 	}
 
 	for _, test := range tests {
-		apis.AddToScheme(scheme.Scheme)
 		t.Run(test.name, func(t *testing.T) {
 
 			mockCtrl := gomock.NewController(t)
@@ -191,7 +231,8 @@ func TestGCPActuator(t *testing.T) {
 			}
 
 			test.existing = append(test.existing, clusterDeployment)
-			fakeClient := fake.NewClientBuilder().WithRuntimeObjects(test.existing...).Build()
+			scheme := scheme.GetScheme()
+			fakeClient := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 
 			// set up mock expectations
 			if test.mockGCPClient != nil {
@@ -202,7 +243,7 @@ func TestGCPActuator(t *testing.T) {
 				gcpClient:      gClient,
 				logger:         logger,
 				client:         fakeClient,
-				scheme:         scheme.Scheme,
+				scheme:         scheme,
 				expectations:   controllerExpectations,
 				projectID:      testProjectID,
 				leasesRequired: test.requireLeases,
@@ -232,9 +273,11 @@ func TestGCPActuator(t *testing.T) {
 					assert.Equal(t, ga.network, gcpProvider.NetworkInterfaces[0].Network)
 					assert.Equal(t, ga.subnet, gcpProvider.NetworkInterfaces[0].Subnetwork)
 
+					platform := test.pool.Spec.Platform.GCP
+
 					// Ensure GCP disk type and size was correctly set or defaulted and made it to the resulting MachineSets:
-					expectedDiskType := test.pool.Spec.Platform.GCP.OSDisk.DiskType
-					expectedDiskSizeGB := test.pool.Spec.Platform.GCP.OSDisk.DiskSizeGB
+					expectedDiskType := platform.OSDisk.DiskType
+					expectedDiskSizeGB := platform.OSDisk.DiskSizeGB
 					if expectedDiskType == "" {
 						expectedDiskType = defaultGCPDiskType
 					}
@@ -245,7 +288,7 @@ func TestGCPActuator(t *testing.T) {
 					assert.Equal(t, expectedDiskSizeGB, gcpProvider.Disks[0].SizeGB)
 
 					// Ensure GCP disk encryption settings made it to the resulting MachineSet (if specified):
-					encKey := test.pool.Spec.Platform.GCP.OSDisk.EncryptionKey
+					encKey := platform.OSDisk.EncryptionKey
 					if encKey != nil {
 						assert.Equal(t, encKey.KMSKeyServiceAccount, gcpProvider.Disks[0].EncryptionKey.KMSKeyServiceAccount)
 						assert.Equal(t, encKey.KMSKey.Name, gcpProvider.Disks[0].EncryptionKey.KMSKey.Name)
@@ -254,6 +297,17 @@ func TestGCPActuator(t *testing.T) {
 						assert.Equal(t, encKey.KMSKey.Location, gcpProvider.Disks[0].EncryptionKey.KMSKey.Location)
 					}
 
+					// NetworkProjectID
+					if npid := platform.NetworkProjectID; npid != "" {
+						assert.Equal(t, npid, gcpProvider.NetworkInterfaces[0].ProjectID)
+					}
+
+					// SecureBoot
+					if sb := platform.SecureBoot; sb == "Enabled" {
+						assert.Equal(t, sb, string(gcpProvider.ShieldedInstanceConfig.SecureBoot))
+					} else {
+						assert.Equal(t, "", string(gcpProvider.ShieldedInstanceConfig.SecureBoot))
+					}
 				}
 			}
 		})
@@ -329,14 +383,13 @@ func TestFindAvailableLeaseChars(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		apis.AddToScheme(scheme.Scheme)
 		t.Run(test.name, func(t *testing.T) {
-
-			fakeClient := fake.NewClientBuilder().WithRuntimeObjects(test.existing...).Build()
+			scheme := scheme.GetScheme()
+			fakeClient := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 			ga := &GCPActuator{
 				logger: log.WithField("actuator", "gcpactuator"),
 				client: fakeClient,
-				scheme: scheme.Scheme,
+				scheme: scheme,
 			}
 
 			cd := &hivev1.ClusterDeployment{}
@@ -538,10 +591,10 @@ func TestObtainLeaseChar(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		apis.AddToScheme(scheme.Scheme)
 		t.Run(test.name, func(t *testing.T) {
 
-			fakeClient := fake.NewClientBuilder().WithRuntimeObjects(test.existing...).Build()
+			scheme := scheme.GetScheme()
+			fakeClient := testfake.NewFakeClientBuilder().WithRuntimeObjects(test.existing...).Build()
 
 			logger := log.WithField("actuator", "gcpactuator")
 			controllerExpectations := controllerutils.NewExpectations(logger)
@@ -557,7 +610,7 @@ func TestObtainLeaseChar(t *testing.T) {
 			ga := &GCPActuator{
 				logger:       log.WithField("actuator", "gcpactuator"),
 				client:       fakeClient,
-				scheme:       scheme.Scheme,
+				scheme:       scheme,
 				expectations: controllerExpectations,
 			}
 
@@ -703,8 +756,7 @@ func TestGetNetwork(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			machineapi.AddToScheme(scheme)
+			scheme := scheme.GetScheme()
 			network, subnet, actualErr := getNetwork(tc.remoteMachineSets, scheme, log.StandardLogger())
 			if tc.expectError {
 				assert.Error(t, actualErr, "expected an error")
@@ -753,7 +805,7 @@ func mockMachineSet(name string, machineType string, unstompedAnnotation bool, r
 }
 
 func mockMachineSpec(machineType string) machineapi.MachineSpec {
-	rawGCPProviderSpec, err := encodeGCPMachineProviderSpec(testGCPProviderSpec(), scheme.Scheme)
+	rawGCPProviderSpec, err := encodeGCPMachineProviderSpec(testGCPProviderSpec(), scheme.GetScheme())
 	if err != nil {
 		log.WithError(err).Fatal("error encoding GCP machine provider spec")
 	}

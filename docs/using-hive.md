@@ -37,6 +37,7 @@
 - [Cluster Adoption](#cluster-adoption)
   - [Example Adoption ClusterDeployment](#example-adoption-clusterdeployment)
   - [Adopting with hiveutil](#adopting-with-hiveutil)
+  - [Transferring ownership](#transferring-ownership)
 - [Configuration Management](#configuration-management)
   - [Vertical Scaling](#vertical-scaling)
   - [SyncSet](#syncset)
@@ -703,7 +704,7 @@ openstack:
 
 A MachinePool for the worker machinesets is not required. If the user creates a MachinePool for the worker MachineSets, then Hive will manage the worker MachineSets.
 
-MachinePool reconciliation is limited to updating MachineSet replicas to match the replicas configured for the MachinePool. Additionally, any existing `Labels` or `Taints` on the MachineSets will be overridden if they clash with those on the MachinePool.
+MachinePool reconciliation is limited to updating MachineSet replicas to match the replicas configured for the MachinePool. Additionally, any existing `Labels` or `Taints` on the MachineSets will be overridden if they clash with those on the MachinePool. In case of duplicate taints, the taint encountered first will be preserved and the rest collapsed on the MachineSets.
 
 MachinePool platform is immutable and any changes made to `MachinePool.spec.platform` are blocked by a validating webhook. The Machine Config Operator does not support updating existing machines when platform details are changed in a MachineSet and consequently Hive does not support making such changes to MachinePool platform, see [HIVE-2024](https://issues.redhat.com/browse/HIVE-2024).
 
@@ -1156,7 +1157,13 @@ Hive will then:
 
 ## Cluster Adoption
 
-It is possible to adopt cluster deployments into Hive. To do so you will need to create a ClusterDeployment with Spec.Installed set to True, no Spec.Provisioning section, and include the following:
+It is possible to adopt cluster deployments into Hive.
+This will allow you to manage the cluster as if it had been provisioned by Hive, including:
+- [MachinePools](#machine-pools)
+- [SyncSets and SelectorSyncSets](syncset.md)
+- [Deprovisioning](#cluster-deprovisioning)
+
+To do so you will need to create a ClusterDeployment with Spec.Installed set to True, no Spec.Provisioning section, and include the following:
 
   * cluster INFRAID (obtained from `oc get infrastructure cluster -o json | jq .status.infrastructureName`)
   * cluster ID (obtained from `oc get clusterversion version -o json | jq .spec.clusterID`)
@@ -1203,6 +1210,32 @@ If the cluster you are looking to adopt is on AWS and leverages Privatelink, you
       region: us-east-1
 ```
 
+If the cluster you are looking to adopt is on AWS and uses a shared VPC, you will also need to include the name of the hosted zone role in `spec.clusterMetadata.platform.aws.hostedZoneRole`.
+
+```yaml
+  clusterMetadata:
+    adminKubeconfigSecretRef:
+      name: my-gcp-cluster-admin-kubeconfig
+    clusterID: 61010205-c91d-44c9-8394-3e1790bd76f3
+    infraID: my-gcp-cluster-wsvdn
+    platform:
+      aws:
+        hostedZoneRole: account-b-zone-role
+```
+
+If the cluster you are looking to adopt is on GCP and uses a shared VPC, you will also need to include the name of the network project ID in `spec.clusterMetadata.platform.gcp.networkProjectID`.
+
+```yaml
+  clusterMetadata:
+    adminKubeconfigSecretRef:
+      name: my-gcp-cluster-admin-kubeconfig
+    clusterID: 61010205-c91d-44c9-8394-3e1790bd76f3
+    infraID: my-gcp-cluster-wsvdn
+    platform:
+      gcp:
+        networkProjectID: some@project.id
+```
+
 ### Adopting with hiveutil
 
 [hiveutil](hiveutil.md) is a development focused CLI tool which can be built from the hive repo. To adopt a cluster specify the following flags:
@@ -1211,6 +1244,18 @@ If the cluster you are looking to adopt is on AWS and leverages Privatelink, you
 bin/hiveutil create-cluster --namespace=namespace-to-adopt-into --base-domain=example.com mycluster --adopt --adopt-admin-kubeconfig=/path/to/cluster/admin/kubeconfig --adopt-infra-id=[INFRAID] --adopt-cluster-id=[CLUSTERID]
 ```
 
+### Transferring ownership
+
+If you wish to transfer ownership of a cluster which is already managed by hive, and have access to the ClusterDeployment, there is no need to create a new ClusterDeployment using `hiveutil`. Instead, simply do the following:
+
+1. Save the current `ClusterDeployment` and relevant creds and certs manifests locally.
+    ``` bash
+    oc get cd <clusterdeployment_name> -n <namespace> -o yaml > clusterdeployment.yaml
+    oc get secrets <clusterdeployment_name_creds> -n <namespace> -o yaml > clusterdeployment_creds.yaml
+    ```
+1. Edit the `ClusterDeployment`, setting `spec.preserveOnDelete` to `true`. This ensures that the next step will only release the hive resources without destroying the cluster in the cloud infrastructure.
+1. Delete the `ClusterDeployment`
+1. From the hive instance that will adopt the cluster, `oc apply` the `ClusterDeployment`, creds and certs manifests you saved in the first step.
 ## Configuration Management
 
 ### Vertical Scaling
