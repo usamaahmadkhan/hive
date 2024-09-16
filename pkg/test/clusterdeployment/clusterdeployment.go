@@ -13,6 +13,7 @@ import (
 	hivev1azure "github.com/openshift/hive/apis/hive/v1/azure"
 	hivev1gcp "github.com/openshift/hive/apis/hive/v1/gcp"
 	hivev1ibmcloud "github.com/openshift/hive/apis/hive/v1/ibmcloud"
+	hivev1openstack "github.com/openshift/hive/apis/hive/v1/openstack"
 	"github.com/openshift/hive/pkg/constants"
 	"github.com/openshift/hive/pkg/test/generic"
 )
@@ -236,6 +237,13 @@ func WithIBMCloudPlatform(platform *hivev1ibmcloud.Platform) Option {
 func WithAlibabaCloudPlatform(platform *hivev1alibabacloud.Platform) Option {
 	return func(clusterDeployment *hivev1.ClusterDeployment) {
 		clusterDeployment.Spec.Platform.AlibabaCloud = platform
+	}
+}
+
+// WithOpenstackPlatform sets the specified Openstack platform on the supplied object.
+func WithOpenstackPlatform(platform *hivev1openstack.Platform) Option {
+	return func(clusterDeployment *hivev1.ClusterDeployment) {
+		clusterDeployment.Spec.Platform.OpenStack = platform
 	}
 }
 

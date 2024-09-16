@@ -32,7 +32,7 @@ HIVE_NS ?= hive
 LOG_LEVEL ?= debug
 
 # Image URL to use all building/pushing image targets
-IMG ?= hive-controller:latest
+IMG ?= localhost:5000/hive:latest
 
 GO_PACKAGES :=./...
 GO_BUILD_PACKAGES :=./cmd/... ./contrib/cmd/hiveutil
